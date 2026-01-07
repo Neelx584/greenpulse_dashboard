@@ -378,7 +378,7 @@ sensor_data = {
     "Co2 (ppm)": random.randint(380,550),
     "Humidity(%)": random.randint(40,75),
     "Light Intensity(lux)": random.randint(100,1200),
-    "Noise Levels(dB)":  rand.randomint(45,80),
+    "Noise Levels(dB)":  random.randint(45,80)
 }
 
 cols= st.columns(4)
@@ -414,5 +414,6 @@ if st.button("Reset and Return to Welcome Page"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
+
 
 
