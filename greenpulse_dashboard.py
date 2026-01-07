@@ -382,7 +382,7 @@ sensor_data = {
 }
 
 cols= st.columns(4)
-for col,(label,value) in zip(cols, sesnor_data.items()):
+for col,(label,value) in zip(cols, sensor_data.items()):
     col.metric(label,value)
 st.caption(
     "Sensor Values shown have been simulated in a few areas for demonstration purposes."
@@ -414,6 +414,7 @@ if st.button("Reset and Return to Welcome Page"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
+
 
 
 
