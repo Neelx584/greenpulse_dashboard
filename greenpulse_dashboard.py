@@ -4,7 +4,7 @@ import numpy as np
 import altair as alt
 import plotly.express as px
 import random
-# Configuring the dashnpard
+# Configuring the dashboard
 st.set_page_config(
     page_title="GreenPulse Urban Nature & Wellbeing Dashboard",
     layout="wide",
@@ -414,6 +414,7 @@ if st.button("Reset and Return to Welcome Page"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
+
 
 
 
