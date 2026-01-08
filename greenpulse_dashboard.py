@@ -4,9 +4,12 @@ import numpy as np
 import altair as alt
 import plotly.express as px
 import random
+import json
 
 wellbeing_raw = pd.read_csv("data/wellbeing-local-authority-time-series-v4.csv")
-
+with open("data/london_boroughs.geojson","r") as f:
+    borough_geojson = json.load(f)
+    
 st.set_page_config(
     page_title="GreenPulse Urban Nature & Wellbeing Dashboard",
     layout="wide",
@@ -45,14 +48,8 @@ boroughs = [
     "Richmond upon Thames","Southwark","Sutton","Tower Hamlets",
     "Waltham Forest","Wandsworth","Westminster"
 ]
-
-base_lat = 51.5074
-base_lon = -0.1278
-
 data = pd.DataFrame({
     "area": boroughs,
-    "lat": base_lat + np.random.uniform(-0.05, 0.05, len(boroughs)),
-    "lon": base_lon + np.random.uniform(-0.08, 0.08, len(boroughs)),
     "tree_cover_pct": np.random.randint(10, 60, len(boroughs)),
     "green_space_access_pct": np.random.randint(40, 95, len(boroughs)),
     "biodiversity_index": np.random.randint(30, 90, len(boroughs)),
@@ -138,20 +135,25 @@ st.markdown("---")
 col_map, col_scores = st.columns([2, 1])
 
 with col_map:
-    fig = px.scatter_mapbox(
+    fig = px.choropleth_mapbox(
         df_view,
-        lat="lat",
-        lon="lon",
+        geojson=borough_geojson,
+        locations="area",
+        featureidkey="properties.name",
         color=map_metric,
-        size=map_metric,
-        size_max=22,
-        zoom=9,
-        center={"lat": 51.5074, "lon": -0.1278},
-        hover_name="area",
         color_continuous_scale="Greens",
-        mapbox_style="carto-positron"
+        mapbox_style="carto-positron",
+        zoom=8.8,
+        center={"lat": 51.5074, "lon": -0.1278},
+        opacity=0.75,
+        hover_name="area"
     )
-    fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
+
+    fig.update_layout(
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        coloraxis_colorbar=dict(title=map_label)
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
 with col_scores:
