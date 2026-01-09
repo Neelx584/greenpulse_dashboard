@@ -7,9 +7,9 @@ import random
 import json
 
 wellbeing_raw = pd.read_csv("data/wellbeing-local-authority-time-series-v4.csv")
-with open("data/london_boroughs.geojson","r") as f:
+with open("data/london_boroughs.geojson", "r") as f:
     borough_geojson = json.load(f)
-    
+
 st.set_page_config(
     page_title="GreenPulse Urban Nature & Wellbeing Dashboard",
     layout="wide",
@@ -20,13 +20,13 @@ if "started" not in st.session_state:
     st.title("Welcome to GreenPulse")
     st.subheader("Exploring how urban nature shapes wellbeing")
     st.write("""This is an interactive dashboard that visually represents the link
-    between **urban green spaces, air quality, and human health**.
-    This dashboard has been designed to help **policy makers, planners, and communities**
+    between urban green spaces, air quality, and human health.
+    This dashboard has been designed to help policy makers, planners, and communities
     to identify where environmental solutions can have the biggest impact in London.
     """)
     st.markdown(
         """
-    **What can be explored:**
+    What can be explored:
     - Greenery and tree cover across London
     - Linking the relationship between nature and health
     - Simulation of nature-related interventions
@@ -48,6 +48,7 @@ boroughs = [
     "Richmond upon Thames","Southwark","Sutton","Tower Hamlets",
     "Waltham Forest","Wandsworth","Westminster"
 ]
+
 data = pd.DataFrame({
     "area": boroughs,
     "tree_cover_pct": np.random.randint(10, 60, len(boroughs)),
@@ -115,8 +116,7 @@ st.sidebar.markdown("SDG 15 – Life on Land")
 st.title("GreenPulse")
 st.subheader("Exploring how urban nature and biodiversity shape human wellbeing")
 st.caption(
-    "Wellbeing index derived from Office for National Statistics (ONS) Life Satisfaction "
-    "values and rescaled to a 0–100 index for comparability."
+    "Wellbeing index derived from Office for National Statistics Life Satisfaction values and rescaled to a 0–100 index for comparability."
 )
 
 df_view = data if selected_area == "All areas" else data[data["area"] == selected_area].copy()
@@ -148,12 +148,10 @@ with col_map:
         opacity=0.75,
         hover_name="area"
     )
-
     fig.update_layout(
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         coloraxis_colorbar=dict(title=map_label)
     )
-
     st.plotly_chart(fig, use_container_width=True)
 
 with col_scores:
@@ -180,7 +178,7 @@ with col_env:
             y="tree_cover_pct:Q",
             tooltip=["area", "tree_cover_pct"]
         ).properties(height=250),
-        use_container_width=True
+        use_container_width=True  
     )
 
 with col_health:
@@ -222,28 +220,54 @@ st.altair_chart(
     use_container_width=True
 )
 
-st.markdown("### Simulation: What if we add more greenery?")
+st.markdown("### Urban Impact Simulation")
 
-baseline_wellbeing = df_view["wellbeing_index"].mean()
+sim_data = df_view if selected_area != "All areas" else data
 
-sim_wellbeing = np.clip(
-    baseline_wellbeing
-    + 0.25 * green_increase
-    + 0.20 * tree_increase,
-    0, 100
-)
+base_wellbeing = sim_data["wellbeing_index"].mean()
+base_stress = sim_data["stress_index"].mean()
+base_resp = sim_data["respiratory_risk_index"].mean()
 
-col_base, col_sim = st.columns(2)
+green_effect = green_increase * 0.2
+tree_effect = tree_increase * 0.3
 
-with col_base:
-    st.metric("Current Wellbeing Index (0–100)", f"{baseline_wellbeing:.1f}")
-
-with col_sim:
+sim_wellbeing = np.clip(base_wellbeing + green_effect + tree_effect * 0.5, 0, 100)
+sim_stress = np.clip(base_stress - green_effect * 0.8, 0, 100)
+sim_resp = np.clip(base_resp - tree_effect, 0, 100)
+col1, col2, col3 = st.columns(3)
+with col1:
     st.metric(
-        "Simulated Wellbeing Index (0–100)",
+        "Wellbeing",
         f"{sim_wellbeing:.1f}",
-        f"{sim_wellbeing - baseline_wellbeing:+.1f}"
+        f"{sim_wellbeing - base_wellbeing:+.1f}",
+        delta_color="normal"
     )
+
+with col2:
+    st.metric(
+        "Stress Levels",
+        f"{sim_stress:.1f}",
+        f"{sim_stress - base_stress:+.1f}",
+        delta_color="inverse"
+    )
+
+with col3:
+    st.metric(
+        "Respiratory Risk",
+        f"{sim_resp:.1f}",
+        f"{sim_resp - base_resp:+.1f}",
+        delta_color="inverse"
+    )
+st.caption(
+    f"""
+    **Understanding the simulation**    
+-> Increasing green space improves wellbeing and reduces stress  
+-> Increasing tree cover reduces respiratory health risk  
+-> Results shown for **{selected_area if selected_area != "All areas" else "London overall"}**  
+-> Values represent estimated change, not medical predictions
+"""
+
+)
 
 st.markdown("### Urban Sensor Integration (Prototype)")
 
@@ -264,3 +288,5 @@ if st.button("Reset and Return to Welcome Page"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
+
+
