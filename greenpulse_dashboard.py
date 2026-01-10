@@ -6,33 +6,15 @@ import plotly.express as px
 import random
 import json
 
+wellbeing_raw = pd.read_csv("data/wellbeing-local-authority-time-series-v4.csv")
+with open("data/london_boroughs.geojson", "r") as f:
+    borough_geojson = json.load(f)
+
 st.set_page_config(
     page_title="GreenPulse Urban Nature & Wellbeing Dashboard",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-wellbeing_raw = pd.read_csv("data/wellbeing-local-authority-time-series-v4.csv")
-
-with open("data/london_boroughs.geojson", "r") as f:
-    borough_geojson = json.load(f)
-
-canopy_df = pd.read_csv("data/tree_canopy.csv")
-green_df = pd.read_csv("data/green_cover.csv")
-
-canopy_df.columns = canopy_df.columns.str.strip().str.lower()
-green_df.columns = green_df.columns.str.strip().str.lower()
-
-canopy_df = canopy_df.rename(columns={
-    "percentage": "tree_canopy_percent"
-})
-
-green_df = green_df.rename(columns={
-    "percentage": "green_cover_percent"
-})
-
-canopy_df["borough"] = canopy_df["borough"].astype(str).str.strip()
-green_df["borough"] = green_df["borough"].astype(str).str.strip()
-
 
 if "started" not in st.session_state:
     st.title("Welcome to GreenPulse")
@@ -74,40 +56,6 @@ data = pd.DataFrame({
     "biodiversity_index": np.random.randint(30, 90, len(boroughs)),
     "air_quality_index": np.random.randint(20, 90, len(boroughs)),
 })
-data = data.merge(
-    canopy_df[["borough", "tree_canopy_percent"]],
-    left_on="area",
-    right_on="borough",
-    how="left"
-).merge(
-    green_df[["borough", "green_cover_percent"]],
-    left_on="area",
-    right_on="borough",
-    how="left"
-)
-data["tree_cover_pct"] = data["tree_canopy_percent"]
-data["green_space_access_pct"] = data["green_cover_percent"]
-data = data.drop(
-    columns=["borough_x", "borough_y", "tree_canopy_percent", "green_cover_percent"],
-    errors="ignore"
-)
-numeric_cols = [
-    "tree_cover_pct",
-    "green_space_access_pct",
-    "biodiversity_index",
-    "air_quality_index",
-    "wellbeing_index"
-]
-
-for col in numeric_cols:
-    if col in data.columns:
-        data[col] = (
-            data[col]
-            .astype(str)
-            .str.replace("%", "", regex=False)
-            .str.strip()
-        )
-        data[col] = pd.to_numeric(data[col], errors="coerce")
 
 wellbeing_raw["v4_3"] = pd.to_numeric(wellbeing_raw["v4_3"], errors="coerce")
 latest_year = wellbeing_raw["Time"].max()
@@ -275,34 +223,17 @@ st.altair_chart(
 st.markdown("### Urban Impact Simulation")
 
 sim_data = df_view if selected_area != "All areas" else data
-if selected_area != "All areas":
-    canopy_pct = canopy_df.loc[
-        canopy_df["borough"] == selected_area,
-        "tree_canopy_percent"
-    ].values[0]
-
-    green_pct = green_df.loc[
-        green_df["borough"] == selected_area,
-        "green_cover_percent"
-    ].values[0]
-else:
-    canopy_pct = canopy_df["tree_canopy_percent"].mean()
-    green_pct = green_df["green_cover_percent"].mean()
-
-
-LONDON_AVG_CANOPY = 19.6
-LONDON_AVG_GREEN = 51.7
-
-canopy_delta = canopy_pct - LONDON_AVG_CANOPY
-green_delta = green_pct - LONDON_AVG_GREEN
 
 base_wellbeing = sim_data["wellbeing_index"].mean()
 base_stress = sim_data["stress_index"].mean()
 base_resp = sim_data["respiratory_risk_index"].mean()
 
-sim_wellbeing = np.clip(base_wellbeing + green_delta * 0.8, 0,100)
-sim_stress = np.clip(base_stress - green_delta * 0.6, 0, 100)
-sim_resp = np.clip(base_resp - canopy_delta * 0.7, 0, 100)
+green_effect = green_increase * 0.2
+tree_effect = tree_increase * 0.3
+
+sim_wellbeing = np.clip(base_wellbeing + green_effect + tree_effect * 0.5, 0, 100)
+sim_stress = np.clip(base_stress - green_effect * 0.8, 0, 100)
+sim_resp = np.clip(base_resp - tree_effect, 0, 100)
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric(
@@ -357,6 +288,9 @@ if st.button("Reset and Return to Welcome Page"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
+
+
+
 
 
 
