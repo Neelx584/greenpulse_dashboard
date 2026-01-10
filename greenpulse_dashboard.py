@@ -54,8 +54,35 @@ data = pd.DataFrame({
     "tree_cover_pct": np.random.randint(10, 60, len(boroughs)),
     "green_space_access_pct": np.random.randint(40, 95, len(boroughs)),
     "biodiversity_index": np.random.randint(30, 90, len(boroughs)),
-    "air_quality_index": np.random.randint(20, 90, len(boroughs)),
 })
+
+
+data["area"] = data["area"].astype(str).str.strip()
+
+
+pm25_raw = pd.read_csv("data/popwmpm252024byUKlocalauthority.csv")
+
+pm25 = pm25_raw.rename(columns={
+    "Unnamed: 1": "area",
+    "population-weighted annual mean PM2.5 concentration for 2024 (ugm-3)": "pm25_ugm3"
+})
+
+pm25 = pm25[["area", "pm25_ugm3"]].dropna(subset=["area"])
+pm25["area"] = pm25["area"].astype(str).str.strip()
+
+pm25["pm25_ugm3"] = pd.to_numeric(pm25["pm25_ugm3"], errors="coerce")
+pm25 = pm25.dropna(subset=["pm25_ugm3"])
+
+borough_name_map = {
+    "Royal Borough of Kensington and Chelsea": "Kensington and Chelsea",
+    "City of Westminster": "Westminster"
+}
+pm25["area"] = pm25["area"].replace(borough_name_map)
+
+pm25 = pm25[pm25["area"].isin(boroughs)].copy()
+pm25 = pm25.groupby("area", as_index=False)["pm25_ugm3"].mean()
+
+
 
 wellbeing_raw["v4_3"] = pd.to_numeric(wellbeing_raw["v4_3"], errors="coerce")
 latest_year = wellbeing_raw["Time"].max()
@@ -75,7 +102,22 @@ wellbeing_df = (
 )
 
 data = data.merge(wellbeing_df, on="area", how="left")
+data = data.merge(
+    pm25[["area", "pm25_ugm3"]],
+    on="area",
+    how="left"
+)
+pm25_min = data["pm25_ugm3"].min(skipna=True)
+pm25_max = data["pm25_ugm3"].max(skipna=True)
+pm25_range = pm25_max - pm25_min
 
+if pd.isna(pm25_range) or pm25_range == 0:
+   
+    data["air_quality_index"] = 50.0
+else:
+    data["air_quality_index"] = (
+        (data["pm25_ugm3"] - pm25_min) / pm25_range
+    ) * 100
 data["stress_index"] = np.clip(
     75
     - 0.25 * data["green_space_access_pct"]
@@ -135,22 +177,35 @@ st.markdown("---")
 col_map, col_scores = st.columns([2, 1])
 
 with col_map:
+   
+    if map_metric in ["respiratory_risk_index", "air_quality_index", "stress_index"]:
+        scale = "YlOrRd"
+    elif map_metric in ["wellbeing_index"]:
+        scale = "Blues"
+    else:
+        scale = "Greens"
+
     fig = px.choropleth_mapbox(
         df_view,
         geojson=borough_geojson,
         locations="area",
         featureidkey="properties.name",
         color=map_metric,
-        color_continuous_scale="Greens",
+        color_continuous_scale=scale,
+        range_color=[0, 100],  
         mapbox_style="carto-positron",
         zoom=8.8,
         center={"lat": 51.5074, "lon": -0.1278},
         opacity=0.75,
-        hover_name="area"
+        hover_name="area",
+        hover_data={
+            map_metric: True,
+            "area": False,
+        },
     )
     fig.update_layout(
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        coloraxis_colorbar=dict(title=map_label)
+        coloraxis_colorbar=dict(title=map_label, ticks="outside"),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -224,9 +279,14 @@ st.markdown("### Urban Impact Simulation")
 
 sim_data = df_view if selected_area != "All areas" else data
 
-base_wellbeing = sim_data["wellbeing_index"].mean()
-base_stress = sim_data["stress_index"].mean()
-base_resp = sim_data["respiratory_risk_index"].mean()
+base_wellbeing = sim_data["wellbeing_index"].mean(skipna=True)
+base_stress = sim_data["stress_index"].mean(skipna=True)
+base_resp = sim_data["respiratory_risk_index"].mean(skipna=True)
+
+base_wellbeing = 0 if pd.isna(base_wellbeing) else base_wellbeing
+base_stress = 0 if pd.isna(base_stress) else base_stress
+base_resp = 0 if pd.isna(base_resp) else base_resp
+
 
 green_effect = green_increase * 0.2
 tree_effect = tree_increase * 0.3
@@ -280,8 +340,6 @@ st.caption(
 """
 
 )
-
-
 
 st.markdown("### Urban Sensor Integration (Prototype)")
 
