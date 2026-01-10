@@ -234,6 +234,15 @@ tree_effect = tree_increase * 0.3
 sim_wellbeing = np.clip(base_wellbeing + green_effect + tree_effect * 0.5, 0, 100)
 sim_stress = np.clip(base_stress - green_effect * 0.8, 0, 100)
 sim_resp = np.clip(base_resp - tree_effect, 0, 100)
+
+def pct_change(new,old):
+    if old == 0 or pd.isna(old):
+        return 0
+    return ((new-old) / old) * 100
+wellbeing_pct = pct_change(sim_wellbeing,base_wellbeing)
+stress_pct = pct_change(sim_stress, base_stress)
+resp_pct = pct_change(sim_resp, base_resp)
+
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric(
@@ -244,20 +253,23 @@ with col1:
     )
 
 with col2:
+    stress_delta = sim_stress - base_stress
     st.metric(
         "Stress Levels",
         f"{sim_stress:.1f}",
-        f"{sim_stress - base_stress:+.1f}",
+        f"{stress_delta:+.1f}",
         delta_color="inverse"
     )
 
 with col3:
+    resp_delta = sim_resp - base_resp
     st.metric(
         "Respiratory Risk",
         f"{sim_resp:.1f}",
-        f"{sim_resp - base_resp:+.1f}",
+        f"{resp_delta:+.1f}",
         delta_color="inverse"
     )
+
 st.caption(
     f"""
     **Understanding the simulation**    
@@ -268,6 +280,8 @@ st.caption(
 """
 
 )
+
+
 
 st.markdown("### Urban Sensor Integration (Prototype)")
 
@@ -288,7 +302,6 @@ if st.button("Reset and Return to Welcome Page"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
-
 
 
 
