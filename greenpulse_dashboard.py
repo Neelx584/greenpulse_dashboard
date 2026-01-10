@@ -19,23 +19,32 @@ st.set_page_config(
 if "started" not in st.session_state:
     st.title("Welcome to GreenPulse")
     st.subheader("Exploring how urban nature shapes wellbeing")
+
+    with st.expander("How to use this dashboard", expanded=True):
+        st.markdown("""
+        * Choose a borough from the left sidebar  
+        * Explore environmental and wellbeing patterns
+        * Adjust the sliders to simulate green interventions  
+        """)
+
     st.write("""This is an interactive dashboard that visually represents the link
     between urban green spaces, air quality, and human health.
     This dashboard has been designed to help policy makers, planners, and communities
     to identify where environmental solutions can have the biggest impact in London.
     """)
-    st.markdown(
-        """
+
+    st.markdown("""
     What can be explored:
-    - Greenery and tree cover across London
-    - Linking the relationship between nature and health
-    - Simulation of nature-related interventions
-    """
-    )
+    * Greenery and tree cover across London
+    * Linking the relationship between nature and health
+    * Simulation of nature-related interventions
+    """)
+    
     if st.button("Enter Dashboard"):
         st.session_state.started = True
         st.rerun()
     st.stop()
+
 
 np.random.seed(7)
 
@@ -360,7 +369,6 @@ if st.button("Reset and Return to Welcome Page"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
-
 
 
 
