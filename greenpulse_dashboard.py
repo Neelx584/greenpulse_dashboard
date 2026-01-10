@@ -178,11 +178,10 @@ map_options = {
     "Respiratory Risk Index": "respiratory_risk_index"
 }
 
-map_label = st.selectbox("Colour map by:", list(map_options.keys()))
-map_metric = map_options[map_label]
 
 st.markdown("### Overview of London")
-st.markdown("---")
+map_label = st.selectbox("Colour map by:", list(map_options.keys()))
+map_metric = map_options[map_label]
 col_map, col_scores = st.columns([2, 1])
 
 with col_map:
@@ -369,6 +368,7 @@ if st.button("Reset and Return to Welcome Page"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
+
 
 
 
