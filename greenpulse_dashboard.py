@@ -35,9 +35,9 @@ if not st.session_state.started:
 
     with st.expander("How to use this dashboard", expanded=True):
         st.markdown("""
-        Choose a borough from the sidebar  
-        Explore environmental and wellbeing patterns  
-        Use the simulation sliders to test green interventions  
+        * Choose a borough from the sidebar  
+        * Explore environmental and wellbeing patterns  
+        * Use the simulation sliders to test green interventions  
         """)
 
     st.write(
@@ -403,4 +403,5 @@ with col_reset_demo:
         if st.button("Reset Demo"):
             st.session_state.demo_step = 0
             st.rerun()
+
 
