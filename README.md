@@ -8,21 +8,21 @@ Built using **Streamlit**, the dashboard combines open datasets with a simulatio
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ## Live Dashboard
-🔗 https://greenpulsedashboard-mhrk3wvomjyxxqw7cpm6vc.streamlit.app/
+ https://greenpulsedashboard-mhrk3wvomjyxxqw7cpm6vc.streamlit.app/
 
 ----------------------------------------------------------------------
 
 ## Dashboard Purpose
 
 GreenPulse was designed to:
-- Visualise environmental and wellbeing inequalities across London
-- Demonstrate how urban greening interventions may affect health indicators
-- Provide a **conference-ready, interactive decision-support tool**
-- Lay foundations for future **real-time sensor integration (ESP32)**
+* Visualise environmental and wellbeing inequalities across London
+* Demonstrate how urban greening interventions may affect health indicators
+* Provide a **conference-ready, interactive decision-support tool**
+* Lay foundations for future **real-time sensor integration (ESP32)**
 
 ----------------------------------------------------------------------
 
-## 🧠 Key Features
+## Key Features
 
 -> **Interactive London map** by borough  
 -> **Green space & tree canopy simulations**
