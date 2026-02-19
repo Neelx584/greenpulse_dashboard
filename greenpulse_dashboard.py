@@ -6,48 +6,296 @@ import plotly.express as px
 import random
 import json
 
+
 st.set_page_config(
     page_title="GreenPulse Urban Nature & Wellbeing Dashboard",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+CUSTOM_CSS = """
+<style>
+:root { 
+  --gp-accent-1: #22c55e;
+  --gp-accent-2: #38bdf8;
+}
+/* --- Background --- */
+.stApp {
+  background:
+    radial-gradient(1200px circle at 12% 10%, rgba(34,197,94,0.18), transparent 55%),
+    radial-gradient(900px circle at 88% 18%, rgba(56,189,248,0.14), transparent 52%),
+    linear-gradient(180deg, #050b15 0%, #020617 100%) !important;
+}
+
+/* Hero container */
+.hero {
+  max-width: 1100px;
+  margin: 3rem auto 2.5rem auto;
+  padding: 3rem 3.5rem;
+  border-radius: 26px;
+  background: linear-gradient(
+    135deg,
+    rgba(20,60,45,0.75),
+    rgba(10,20,35,0.85)
+  );
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 30px 80px rgba(0,0,0,0.45);
+}
 
 
+/* Glass cards */
+.gp-card {
+  border-radius: 18px;
+  padding: 16px 18px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.22);
+}
+.gp-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(34,197,94,0.45);
+  box-shadow:
+    0 14px 34px rgba(0,0,0,0.28),
+    0 0 22px rgba(34,197,94,0.35),
+    0 0 38px rgba(56,189,248,0.22);
+}
+
+
+/* --- Animated full-width accent divider --- */
+@keyframes gp-flow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.gp-divider-animated {
+  height: 4px;
+  width: 100%;
+  border-radius: 999px;
+
+  background: linear-gradient(
+    90deg,
+    #22c55e,
+    #38bdf8,
+    #22c55e
+  );
+  background-size: 300% 100%;
+
+  animation: gp-flow 8s ease-in-out infinite;
+
+  margin: 2.4rem 0 2.8rem 0;
+
+  box-shadow:
+    0 0 14px rgba(34,197,94,0.45),
+    0 0 28px rgba(56,189,248,0.25);
+}
+/* --- Animated glow for primary buttons --- */
+@keyframes gp-button-glow {
+  0% {
+    box-shadow:
+      0 0 0 rgba(34,197,94,0.0),
+      0 0 0 rgba(56,189,248,0.0);
+  }
+  50% {
+    box-shadow:
+      0 0 18px rgba(34,197,94,0.45),
+      0 0 32px rgba(56,189,248,0.30);
+  }
+  100% {
+    box-shadow:
+      0 0 0 rgba(34,197,94,0.0),
+      0 0 0 rgba(56,189,248,0.0);
+  }
+}
+
+/* Style + animate Streamlit buttons */
+div.stButton > button {
+  border-radius: 16px;
+  padding: 0.75rem 1.3rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+
+  border: 1px solid rgba(34,197,94,0.45);
+  background: linear-gradient(
+    135deg,
+    rgba(34,197,94,0.25),
+    rgba(56,189,248,0.18)
+  );
+
+  animation: gp-button-glow 5.5s ease-in-out infinite;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Hover = intentional emphasis */
+div.stButton > button:hover {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow:
+    0 0 24px rgba(34,197,94,0.6),
+    0 0 40px rgba(56,189,248,0.4);
+}
+
+/* Active (click) feedback */
+div.stButton > button:active {
+  transform: scale(0.98);
+}
+.dash-hero{
+  margin: 1.2rem 0 1.2rem 0;
+  padding: 1.4rem 1.6rem;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 18px 45px rgba(0,0,0,0.35);
+  position: relative;
+  overflow: hidden;
+}
+.dash-hero:before{
+  content:"";
+  position:absolute;
+  inset:-2px;
+  background: radial-gradient(700px circle at 10% 20%, rgba(34,197,94,0.18), transparent 45%),
+              radial-gradient(700px circle at 90% 10%, rgba(56,189,248,0.16), transparent 45%);
+  filter: blur(8px);
+  opacity: 0.9;
+  pointer-events:none;
+}
+.dash-hero-inner{ position:relative; z-index:1; }
+
+@keyframes gp-shimmer {
+  0% { transform: translateX(-30%); opacity: 0.0; }
+  20%{ opacity: 0.35; }
+  50%{ opacity: 0.12; }
+  100%{ transform: translateX(30%); opacity: 0.0; }
+}
+.dash-shimmer{
+  position:absolute;
+  top:-40%;
+  left:0;
+  width:100%;
+  height:180%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+  transform: translateX(-30%);
+  animation: gp-shimmer 7.5s ease-in-out infinite;
+  pointer-events:none;
+  z-index:0;
+}
+
+/* ---------- Pills / chips ---------- */
+.pill-row{ display:flex; flex-wrap:wrap; gap:10px; margin-top: 10px; }
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.pill-dot{
+  width:10px; height:10px; border-radius:999px;
+  background: linear-gradient(90deg, var(--gp-accent-1), var(--gp-accent-2));
+  box-shadow: 0 0 14px rgba(34,197,94,0.35), 0 0 20px rgba(56,189,248,0.22);
+}
+
+/* ---------- KPI cards ---------- */
+.kpi-grid{
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.kpi{
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.22);
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.kpi:hover{
+  transform: translateY(-2px);
+  border-color: rgba(34,197,94,0.40);
+  box-shadow:
+    0 14px 34px rgba(0,0,0,0.30),
+    0 0 18px rgba(34,197,94,0.25),
+    0 0 30px rgba(56,189,248,0.18);
+}
+.kpi .label{ opacity:0.8; font-size:0.95rem; }
+.kpi .value{ font-size:1.55rem; font-weight:750; margin-top: 6px; }
+.kpi .sub{ opacity:0.75; font-size:0.92rem; margin-top: 4px; }
+
+@media (max-width: 1100px){
+  .kpi-grid{ grid-template-columns: 1fr; }
+}
+</style>
+"""
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+# -------------------------------
+# Session state
+# -------------------------------
 if "demo_step" not in st.session_state:
     st.session_state.demo_step = 0
 
 if "started" not in st.session_state:
     st.session_state.started = False
+
+# Welcome page only
 if not st.session_state.started:
-    st.title("Welcome to GreenPulse")
-    st.subheader("Urban Nature, Environment and Wellbeing")
+    st.markdown("""
+    <div class="hero">
+      <h1>GreenPulse</h1>
+      <h3>Urban Nature, Environment & Wellbeing</h3>
 
-    st.write(
-        "GreenPulse is an interactive data dashboard designed to explore relationships "
-        "between urban green infrastructure, environmental conditions, and population "
-        "wellbeing across London boroughs."
-    )
-    st.write(
-        "The dashboard integrates publicly available datasets and simplified indicators "
-        "to support exploratory analysis and discussion. It is intended for educational, "
-        "analytical, and demonstrative use rather than predictive decision-making."
-    )
+      <p>
+        An interactive dashboard exploring the relationships between
+        <b>urban green infrastructure</b>, <b>environmental conditions</b>,
+        and <b>population wellbeing</b> across London boroughs.
+      </p>
 
-    with st.expander("How to use this dashboard", expanded=True):
+      <p>
+        Built using publicly available datasets, GreenPulse supports
+        <b>exploratory analysis</b>, <b>education</b>, and
+        <b>demonstration</b> — not predictive decision-making.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<div class='gp-divider-animated'></div>", unsafe_allow_html=True)
+
+    st.markdown("### How it works")
+
+    col1, col2, col3 = st.columns(3, gap="large")
+
+    with col1:
         st.markdown("""
-        * Choose a borough from the sidebar  
-        * Explore environmental and wellbeing patterns  
-        * Use the simulation sliders to test green interventions  
-        """)
+        <div class="gp-card">
+          <div class="title">🗺️ Choose a borough</div>
+          <p class="desc">Explore London at borough level</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.write(
-        "This dashboard explores links between urban green spaces, air quality, "
-        "and human health to support evidence based urban planning in London."
-    )
+    with col2:
+        st.markdown("""
+        <div class="gp-card">
+          <div class="title"> Explore patterns</div>
+          <p class="desc">Compare environment and wellbeing indicators</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    if st.button("Enter Dashboard"):
+    with col3:
+        st.markdown("""
+        <div class="gp-card">
+          <div class="title"> Test interventions</div>
+          <p class="desc">Simulate green infrastructure impacts</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Centered CTA that won't wrap weirdly
+    st.markdown("<div style='max-width:420px; margin: 2.5rem auto 0 auto;'>", unsafe_allow_html=True)
+    if st.button(" Enter Dashboard", use_container_width=True):
         st.session_state.started = True
         st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.stop()
 
@@ -211,7 +459,10 @@ with st.container():
     )
 if demo_mode:
     st.markdown("### Guided Demo")
-
+    #progress indicators showing how far people have gone in the demo
+    total_steps = 5
+    current_step = st.session_state.demo_step + 1
+    st.progress(current_step / total_steps)
     col_prev, col_mid, col_next = st.columns([1, 3, 1])
 
     with col_prev:
@@ -394,7 +645,7 @@ elif section == "Urban Sensor Integration":
 st.markdown("---")
 col_reset_welcome, col_reset_demo, spacer = st.columns([3,1.5,5])
 with col_reset_welcome:
-    if st.button("Reset and Return to Welcome Page"):
+    if st.button("Return to Welcome Page"):
         st.session_state.started = False
         st.session_state.demo_step = 0
         st.rerun()
