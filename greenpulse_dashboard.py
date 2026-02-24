@@ -5,7 +5,12 @@ import altair as alt
 import plotly.express as px
 import random
 import json
+import os
+import base64
 
+def img_to_base64(path: str) -> str:
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
 
 st.set_page_config(
     page_title="GreenPulse Urban Nature & Wellbeing Dashboard",
@@ -40,8 +45,6 @@ CUSTOM_CSS = """
   border: 1px solid rgba(255,255,255,0.08);
   box-shadow: 0 30px 80px rgba(0,0,0,0.45);
 }
-
-
 /* Glass cards */
 .gp-card {
   border-radius: 18px;
@@ -226,6 +229,85 @@ div.stButton > button:active {
 @media (max-width: 1100px){
   .kpi-grid{ grid-template-columns: 1fr; }
 }
+/* ---------- GII Recommendation Card (dynamic + animated) ---------- */
+@keyframes gp-rise-in {
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0);  opacity: 1; }
+}
+
+.gp-rec-card{
+  margin-top: 18px;
+  padding: 18px 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+  animation: gp-rise-in 0.45s ease-out both;
+}
+
+.gp-rec-title{
+  margin: 0 0 8px 0;
+  font-weight: 700;
+}
+
+.gp-rec-text{
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.45;
+  opacity: 0.95;
+}
+
+/* severity styles */
+.gp-sev-low{
+  background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(2,6,23,0.55));
+  border-color: rgba(34,197,94,0.40);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35), 0 0 22px rgba(34,197,94,0.18);
+}
+.gp-sev-med{
+  background: linear-gradient(135deg, rgba(234,179,8,0.18), rgba(2,6,23,0.55));
+  border-color: rgba(234,179,8,0.45);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35), 0 0 22px rgba(234,179,8,0.18);
+}
+.gp-sev-high{
+  background: linear-gradient(135deg, rgba(239,68,68,0.18), rgba(2,6,23,0.55));
+  border-color: rgba(239,68,68,0.45);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35), 0 0 22px rgba(239,68,68,0.18);
+}
+@keyframes gp-logo-glow {
+  0% {
+    box-shadow:
+      0 0 20px rgba(34,197,94,0.25),
+      0 0 35px rgba(56,189,248,0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 40px rgba(34,197,94,0.45),
+      0 0 65px rgba(56,189,248,0.35);
+  }
+  100% {
+    box-shadow:
+      0 0 20px rgba(34,197,94,0.25),
+      0 0 35px rgba(56,189,248,0.18);
+  }
+}
+
+.gp-logo-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.gp-logo-glow {
+  border-radius: 28px;
+  padding: 18px;
+  background: radial-gradient(
+    circle at center,
+    rgba(34,197,94,0.12),
+    rgba(56,189,248,0.08),
+    transparent 70%
+  );
+  animation: gp-logo-glow 6s ease-in-out infinite;
+}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -255,7 +337,7 @@ if not st.session_state.started:
       <p>
         Built using publicly available datasets, GreenPulse supports
         <b>exploratory analysis</b>, <b>education</b>, and
-        <b>demonstration</b> — not predictive decision-making.
+        <b>demonstration</b> and not predictive decision-making.
       </p>
     </div>
     """, unsafe_allow_html=True)
@@ -269,7 +351,7 @@ if not st.session_state.started:
     with col1:
         st.markdown("""
         <div class="gp-card">
-          <div class="title">🗺️ Choose a borough</div>
+          <div class="title"> Choose a borough</div>
           <p class="desc">Explore London at borough level</p>
         </div>
         """, unsafe_allow_html=True)
@@ -347,9 +429,31 @@ latest_year = wellbeing_raw["Time"].max()
 wellbeing_df = wellbeing_raw[
     (wellbeing_raw["Time"] == latest_year) &
     (wellbeing_raw["MeasureOfWellbeing"] == "Life satisfaction") &
+    # Use the official borough mean (prevents mixing mean with % breakdown rows)
+    ((wellbeing_raw["Estimate"] == "Average (mean)") if "Estimate" in wellbeing_raw.columns else True) &
     (wellbeing_raw["Geography"].isin(boroughs))
 ][["Geography", "v4_3"]].rename(
     columns={"Geography": "area", "v4_3": "wellbeing_index"}
+)
+
+# Ensure numeric + 1 wellbeing value per borough
+wellbeing_df["wellbeing_index"] = pd.to_numeric(wellbeing_df["wellbeing_index"], errors="coerce")
+wellbeing_df = wellbeing_df.groupby("area", as_index=False)["wellbeing_index"].mean()
+
+# Add a simple wellbeing band + note (similar to GII recommendations)
+_london_wb_mean = float(wellbeing_df["wellbeing_index"].mean(skipna=True))
+
+def _wellbeing_band_and_note(score: float, london_mean: float):
+    if pd.isna(score):
+        return ("Unknown", "Wellbeing score not available for this borough.")
+    if score <= london_mean - 0.15:
+        return ("Below average", "Boost wellbeing with pocket parks, safer green walking routes, and stronger links between nature and health support (e.g., social prescribing).")
+    if score >= london_mean + 0.15:
+        return ("Above average", "Protect existing green assets and prioritise quality upgrades (maintenance, lighting, seating and biodiversity) to sustain wellbeing.")
+    return ("Average", "Maintain wellbeing by improving park quality, accessibility, and tree‑lined streets—small upgrades can have large benefits.")
+
+wellbeing_df["wellbeing_band"], wellbeing_df["wellbeing_note"] = zip(
+    *[_wellbeing_band_and_note(v, _london_wb_mean) for v in wellbeing_df["wellbeing_index"]]
 )
 
 data = data.merge(wellbeing_df, on="area", how="left")
@@ -379,6 +483,160 @@ data["respiratory_risk_index"] = np.clip(
     0, 100
 )
 
+
+# -------------------------------------------------
+# GREEN INEQUALITY INDEX (GII) – loaded from Excel
+# -------------------------------------------------
+def _load_gii_data():
+    candidate_paths = [
+        "data/GreenPulse Map.csv",
+        "GreenPulse Map.csv",
+        "data/Green Inequality Index.csv",
+        "Green Inequality Index.csv",
+    ]
+
+    for path in candidate_paths:
+        if os.path.exists(path):
+            return pd.read_csv(path)
+
+    return None
+
+
+gii_df = _load_gii_data()
+if gii_df is not None and "Borough" in gii_df.columns:
+    gii = gii_df.copy()
+    # Clean borough names
+    gii["Borough"] = gii["Borough"].astype(str).str.strip()
+
+    # Standardise column names into the dashboard
+    rename_map = {
+        "Borough": "area",
+        "GI": "green_inequality_index",
+        "PM": "gii_pm25",
+        "Green": "gii_greenspace",
+        "Bio": "gii_biodiversity",
+        "Asthma": "gii_asthma",
+    }
+    gii = gii.rename(columns=rename_map)
+
+    # Ensure numeric
+    for c in ["green_inequality_index", "gii_pm25", "gii_greenspace", "gii_biodiversity", "gii_asthma"]:
+        if c in gii.columns:
+            gii[c] = pd.to_numeric(gii[c], errors="coerce")
+
+    # Main driver = largest contributing factor (simple rule based on your 4 factor columns)
+    driver_cols = {
+        "PM2.5": "gii_pm25",
+        "Low green space": "gii_greenspace",
+        "Low biodiversity": "gii_biodiversity",
+        "Asthma (u19)": "gii_asthma",
+    }
+    # Row-wise argmax across the four factors (ignoring NaNs)
+    factor_frame = gii[list(driver_cols.values())].copy()
+    gii["gii_main_driver"] = factor_frame.idxmax(axis=1).map({v: k for k, v in driver_cols.items()})
+
+    # Nature-based solution recommendation per driver
+    rec_map = {
+        "PM2.5": "Roadside green barriers + street tree corridors to trap particulates and reduce exposure.",
+        "Low green space": "Pocket parks, school greening, and converting underused land into accessible green space.",
+        "Low biodiversity": "Pollinator corridors, native planting, and habitat mosaics to restore urban biodiversity.",
+        "Asthma (u19)": "Greening around schools + low-allergen planting and shaded walking routes to reduce flare-up risk.",
+    }
+    gii["gii_recommendation"] = gii["gii_main_driver"].map(rec_map)
+
+    # Merge into main dataset
+    data = data.merge(
+        gii[[
+            "area",
+            "green_inequality_index",
+            "gii_pm25",
+            "gii_greenspace",
+            "gii_biodiversity",
+            "gii_asthma",
+            "gii_main_driver",
+            "gii_recommendation",
+        ]],
+        on="area",
+        how="left"
+    )
+else:
+    # Keep columns present even if Excel isn't available (prevents key errors)
+    data["green_inequality_index"] = np.nan
+    data["gii_pm25"] = np.nan
+    data["gii_greenspace"] = np.nan
+    data["gii_biodiversity"] = np.nan
+    data["gii_asthma"] = np.nan
+    data["gii_main_driver"] = np.nan
+    data["gii_recommendation"] = np.nan
+
+# Ensure exactly 1 row per borough after merges (keeps maps + charts consistent)
+numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+non_numeric_cols = [c for c in data.columns if c not in numeric_cols and c != "area"]
+data = (
+    data.groupby("area", as_index=False)
+        .agg({**{c: "mean" for c in numeric_cols}, **{c: "first" for c in non_numeric_cols}})
+)
+# -------------------------------------------------
+# STRATEGIC LAYERS
+# -------------------------------------------------
+
+# --- 1️⃣ Risk Classification ---
+def classify_risk(gii):
+    if pd.isna(gii):
+        return "Unknown"
+    if gii >= 0.75:
+        return "Critical Ecological Stress"
+    elif gii >= 0.55:
+        return "High Risk"
+    elif gii >= 0.35:
+        return "Transitional"
+    else:
+        return "Resilient Zone"
+
+data["risk_classification"] = data["green_inequality_index"].apply(classify_risk)
+
+
+# --- 2️⃣ Equity (Green Access) Metric ---
+# Build a smoother (less tie-prone) proxy "green access score" using multiple dimensions.
+# This avoids many boroughs rounding to identical values.
+data["green_access_score"] = (
+    0.50 * data["green_space_access_pct"].fillna(0)
+    + 0.30 * data["tree_cover_pct"].fillna(0)
+    + 0.20 * data["biodiversity_index"].fillna(0)
+)
+
+# Use the median as a robust benchmark (less sensitive to outliers)
+london_green_benchmark = float(data["green_access_score"].median(skipna=True))
+
+# Deficit-only metric (0% means no deficit: borough >= benchmark)
+data["equity_deficit_pct"] = np.clip(
+    (london_green_benchmark - data["green_access_score"]) / london_green_benchmark * 100,
+    0,
+    None
+)
+
+# Percentile position (higher = better access)
+data["green_access_percentile"] = data["green_access_score"].rank(pct=True) * 100
+
+
+# --- 3️⃣ Policy Priority Ranking (resource allocation model) ---
+# Align urgency with the risk layer:
+# - GII is the main driver
+# - equity_deficit increases urgency (shortfall vs benchmark)
+# - stress provides additional weighting
+gii_component = data["green_inequality_index"].fillna(0)
+stress_component = (data["stress_index"].fillna(0) / 100)
+
+data["intervention_urgency_score"] = (
+    (gii_component * 0.60)
+    + ((data["equity_deficit_pct"].fillna(0) / 100) * 0.25)
+    + (stress_component * 0.15)
+)
+
+# Rank: 1 = most urgent
+data["priority_rank"] = data["intervention_urgency_score"].rank(
+    ascending=False, method="min"
+).astype(int)
 
 st.sidebar.title("Dashboard Navigation")
 
@@ -450,6 +708,17 @@ df_view = data if selected_area == "All areas" else data[data["area"] == selecte
 
 
 with st.container():
+
+    logo_b64 = img_to_base64("GreenPulse Logo.jpeg")
+
+    st.markdown(f"""
+    <div class="gp-logo-container">
+      <div class="gp-logo-glow">
+        <img src="data:image/jpeg;base64,{logo_b64}" style="width:180px; height:auto; display:block;">
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.title("GreenPulse")
     st.subheader("Urban Nature, Environment and Wellbeing")
 
@@ -495,9 +764,9 @@ demo_text = {
 if demo_mode and st.session_state.demo_step == 4:
     st.success("Demo complete! You can continue exploring the dashboard or reset the demo to start again.")
 
-# -------------------------------
+
 # Sections
-# -------------------------------
+
 if section == "Overview of London":
     if demo_mode:
         st.success(demo_text[section])
@@ -505,7 +774,8 @@ if section == "Overview of London":
     map_options = {
         "Green Space Access (%)": "green_space_access_pct",
         "Wellbeing Index": "wellbeing_index",
-        "Respiratory Risk Index": "respiratory_risk_index"
+        "Respiratory Risk Index": "respiratory_risk_index",
+        "Green Inequality Index (0–1)": "green_inequality_index",
     }
 
     map_label = st.selectbox("Colour map by:", list(map_options.keys()))
@@ -515,34 +785,245 @@ if section == "Overview of London":
         scale = "YlOrRd"
     elif map_metric == "wellbeing_index":
         scale = "Blues"
+    elif map_metric == "green_inequality_index":
+        scale = "RdYlGn_r"
     else:
         scale = "Greens"
 
+    df_map = df_view.copy()
+
+    # Range handling
+    if map_metric == "green_inequality_index":
+        range_color = [0, 1]
+        # Exclude City of London (not included in the dataset)
+        df_map = df_map[df_map["area"] != "City of London"]
+    elif map_metric == "wellbeing_index":
+        range_color = [0, 10]
+    else:
+        range_color = [0, 100]
+
+    # Hover handling
+    if map_metric == "green_inequality_index":
+        if df_map["green_inequality_index"].dropna().empty:
+            st.warning("Green Inequality Index data not found. Make sure 'GreenPulse Map.csv' is in your repo (e.g., data/GreenPulse Map.csv).")
+
+        hover_data = {
+            "green_inequality_index": ":.3f",
+            "gii_main_driver": True,
+        }
+    elif map_metric == "wellbeing_index":
+        hover_data = {
+            "wellbeing_index": ":.2f",
+            "wellbeing_band": True,
+        }
+    else:
+        hover_data = {map_metric: ":.1f"}
+
     fig = px.choropleth_mapbox(
-        df_view,
+        df_map,
         geojson=borough_geojson,
         locations="area",
         featureidkey="properties.name",
         color=map_metric,
         color_continuous_scale=scale,
-        range_color=[0, 100],
+        range_color=range_color,
         mapbox_style="carto-positron",
         zoom=8.8,
         center={"lat": 51.5074, "lon": -0.1278},
         opacity=0.75,
         hover_name="area",
-        hover_data={map_metric: ":.1f"},
+        hover_data=hover_data,
         labels={
             "green_space_access_pct": "Green Space Access (%)",
             "wellbeing_index": "Wellbeing Index",
-            "respiratory_risk_index": "Respiratory Risk Index"
+            "wellbeing_band": "Wellbeing Band",
+            "respiratory_risk_index": "Respiratory Risk Index",
+            "green_inequality_index": "Green Inequality Index (0–1)",
+            "gii_main_driver": "Primary Driver",
+            "gii_pm25": "PM2.5 Contribution",
+            "gii_greenspace": "Green Space Deficit",
+            "gii_biodiversity": "Biodiversity Deficit",
+            "gii_asthma": "Asthma Vulnerability (U19)",
         }
     )
 
     fig.update_coloraxes(colorbar_title=map_label)
     st.plotly_chart(fig, use_container_width=True)
+    if selected_area == "All areas":
+        st.caption("**Select a borough from the sidebar to see the recommendation / wellbeing note.**")
+
+    # --- GII recommendation card (only when a borough is selected) ---
+    if selected_area != "All areas" and map_metric == "green_inequality_index":
+        row = data[data["area"] == selected_area]
+        if not row.empty:
+            r0 = row.iloc[0]
+            rec = r0.get("gii_recommendation", None)
+            gii_val = r0.get("green_inequality_index", None)
+
+            sev_class = "gp-sev-med"
+            sev_label = "Medium"
+            try:
+                if pd.notna(gii_val):
+                    if gii_val < 0.33:
+                        sev_class, sev_label = "gp-sev-low", "Low"
+                    elif gii_val < 0.66:
+                        sev_class, sev_label = "gp-sev-med", "Medium"
+                    else:
+                        sev_class, sev_label = "gp-sev-high", "High"
+            except Exception:
+                pass
+
+            rec_txt = rec.strip() if isinstance(rec, str) else ""
+            if not rec_txt:
+                rec_txt = "—"
+
+            gii_str = "—"
+            try:
+                if pd.notna(gii_val):
+                    gii_str = f"{float(gii_val):.3f}"
+            except Exception:
+                pass
+
+            st.markdown(f"""
+            <div class="gp-rec-card {sev_class}">
+              <div class="gp-rec-title">
+                Recommendation for <b>{selected_area}</b> <span style="opacity:0.85;">(Severity: {sev_label} -> GII: {gii_str})</span>
+              </div>
+              <p class="gp-rec-text">{rec_txt}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # --- Wellbeing note card (similar style to GII) ---
+    if selected_area != "All areas" and map_metric == "wellbeing_index":
+        row = data[data["area"] == selected_area]
+        if not row.empty:
+            r0 = row.iloc[0]
+            wb_val = r0.get("wellbeing_index", None)
+            wb_band = r0.get("wellbeing_band", "")
+            wb_note = r0.get("wellbeing_note", "")
+
+            sev_class = "gp-sev-med"
+            if isinstance(wb_band, str):
+                if "Above" in wb_band:
+                    sev_class = "gp-sev-low"
+                elif "Below" in wb_band:
+                    sev_class = "gp-sev-high"
+
+            wb_str = "—"
+            try:
+                if pd.notna(wb_val):
+                    wb_str = f"{float(wb_val):.2f}"
+            except Exception:
+                pass
+
+            wb_note_txt = wb_note.strip() if isinstance(wb_note, str) else ""
+            if not wb_note_txt:
+                wb_note_txt = "—"
+
+            st.markdown(
+                f"""
+                <div class="gp-rec-card {sev_class}">
+                  <div class="gp-rec-title">
+                    Wellbeing note for <b>{selected_area}</b>
+                    <span style="opacity:0.85;">({wb_band} • Score: {wb_str}/10)</span>
+                  </div>
+                  <p class="gp-rec-text">{wb_note_txt}</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    # -------------------------------------------------
+    # Strategic Indicators (borough selected)
+    # -------------------------------------------------
+    if selected_area != "All areas":
+        _row = data[data["area"] == selected_area]
+        if not _row.empty:
+            _r = _row.iloc[0]
+
+            st.markdown("### Strategic Indicators")
+
+            # Risk badge tone
+            _risk = str(_r.get("risk_classification", "—"))
+            _risk_map = {
+                "Resilient Zone": ("🟢", "Low"),
+                "Transitional": ("🟡", "Medium"),
+                "High Risk": ("🟠", "High"),
+                "Critical Ecological Stress": ("🔴", "Critical"),
+                "Unknown": ("⚪", "Unknown"),
+            }
+            _risk_emoji, _risk_level = _risk_map.get(_risk, ("⚪", "Unknown"))
+
+            _driver = _r.get("gii_main_driver", np.nan)
+            _driver_txt = "—"
+            try:
+                if isinstance(_driver, str) and _driver.strip():
+                    _driver_txt = _driver.strip()
+                elif pd.notna(_driver):
+                    _driver_txt = str(_driver)
+            except Exception:
+                pass
+
+            _def = _r.get("equity_deficit_pct", np.nan)
+            _pct = _r.get("green_access_percentile", np.nan)
+            _rank = _r.get("priority_rank", np.nan)
+            _total = int(data["area"].nunique())
+
+            def _format_deficit(v: float) -> str:
+                if pd.isna(v):
+                    return "—"
+                v = float(v)
+                if v < 0.5:
+                    return "No deficit"
+                if v < 1.0:
+                    return "<1% deficit"
+                return f"{v:.1f}% deficit"
+
+            _def_txt = _format_deficit(_def)
+            _pct_txt = "—" if pd.isna(_pct) else f"{float(_pct):.0f}th"
+            _alloc_txt = "—" if pd.isna(_rank) else f"{int(_rank)} / {_total}"
+
+            # Allocation tier (governmental language)
+            if pd.isna(_rank):
+                _tier = "—"
+            else:
+                r = int(_rank)
+                if r <= max(1, int(np.ceil(_total * 0.20))):
+                    _tier = "Tier 1 – Immediate Allocation Focus"
+                elif r <= max(1, int(np.ceil(_total * 0.50))):
+                    _tier = "Tier 2 – Moderate Priority"
+                else:
+                    _tier = "Tier 3 – Strategic Monitoring"
+            st.markdown(
+                f'''
+                <div class="kpi-grid">
+                  <div class="kpi">
+                    <div class="label">Risk classification</div>
+                    <div class="value">{_risk_emoji} {_risk}</div>
+                    <div class="sub">Severity: {_risk_level}</div>
+                    <div class="sub">Primary driver: {_driver_txt}</div>
+                  </div>
+
+                  <div class="kpi">
+                    <div class="label">Green access deficit vs London benchmark</div>
+                    <div class="value">{_def_txt}</div>
+                    <div class="sub">Green access percentile: {_pct_txt}</div>
+                  </div>
+
+                  <div class="kpi">
+                    <div class="label">Intervention allocation position</div>
+                    <div class="value">{_alloc_txt}</div>
+                    <div class="sub">{_tier}</div>
+                  </div>
+                </div>
+                ''',
+                unsafe_allow_html=True
+            )
+
+
 
 elif section == "Environment & Health":
+
     if demo_mode:
         st.success(demo_text[section])
 
@@ -551,17 +1032,25 @@ elif section == "Environment & Health":
     with col1:
         st.altair_chart(
             alt.Chart(df_view).mark_bar().encode(
-                x="area:N",
-                y="green_space_access_pct:Q"
+                x=alt.X("area:N", sort="-y", title="Borough"),
+                y=alt.Y("green_space_access_pct:Q", title= "Green Space Access (%)"),
+                tooltip=[
+                     alt.Tooltip("area:N", title="Borough"),
+                     alt.Tooltip("green_space_access_pct:Q", title="Green Space Access (%)", format=".0f"),
+                ]
             ),
             use_container_width=True
         )
 
     with col2:
         st.altair_chart(
-            alt.Chart(df_view).mark_line(point=True).encode(
-                x="area:N",
-                y="wellbeing_index:Q"
+            alt.Chart(df_view).mark_bar(point=True).encode(
+                x=alt.X("area:N", sort="-y", title= "Borough"),
+                y=alt.Y("wellbeing_index:Q", title="Wellbeing Index"),
+                tooltip=[
+                    alt.Tooltip("area:N", title="Borough"),
+                    alt.Tooltip("wellbeing_index:Q", title="Wellbeing Index", format=".2f"),
+                ]
             ),
             use_container_width=True
         )
@@ -572,60 +1061,97 @@ elif section == "Relationship Explorer":
 
     metric_x = st.selectbox(
         "Environmental metric",
-        ["green_space_access_pct", "tree_cover_pct", "biodiversity_index", "air_quality_index"]
+        ["green_space_access_pct", "tree_cover_pct", "biodiversity_index", "air_quality_index", "green_inequality_index"]
     )
     metric_y = st.selectbox(
         "Health metric",
-        ["wellbeing_index", "stress_index", "respiratory_risk_index"]
+        ["wellbeing_index", "stress_index", "respiratory_risk_index", "green_inequality_index"]
     )
 
-    st.altair_chart(
-        alt.Chart(df_view).mark_circle(size=120).encode(
-            x=f"{metric_x}:Q",
-            y=f"{metric_y}:Q",
-            tooltip=["area", metric_x, metric_y]
-        ),
-        use_container_width=True
+    axis_labels = {
+        "green_space_access_pct": "Green Space Access (%)",
+        "tree_cover_pct": "Tree Cover (%)",
+        "biodiversity_index": "Biodiversity Index",
+        "air_quality_index": "Air Quality Index (0–100)",
+        "wellbeing_index": "Wellbeing Index",
+        "stress_index": "Stress Index (0–100)",
+        "respiratory_risk_index": "Respiratory Risk Index (0–100)",
+        "green_inequality_index": "Green Inequality Index (0–1)",
+    }
+
+    base = alt.Chart(df_view)
+
+    glow = base.mark_circle(
+        size=350,
+        opacity=0.15,
+        color="#38bdf8"
+    ).encode(
+        x=alt.X(f"{metric_x}:Q", title=axis_labels.get(metric_x, metric_x)),
+        y=alt.Y(f"{metric_y}:Q", title=axis_labels.get(metric_y, metric_y)),
     )
+
+    points = base.mark_circle(
+        size=120,
+        color="#22c55e",
+        stroke="white",
+        strokeWidth=1
+    ).encode(
+        x=alt.X(f"{metric_x}:Q", title=axis_labels.get(metric_x, metric_x)),
+        y=alt.Y(f"{metric_y}:Q", title=axis_labels.get(metric_y, metric_y)),
+        tooltip=[
+            alt.Tooltip("area:N", title="Borough"),
+            alt.Tooltip(f"{metric_x}:Q", title=axis_labels.get(metric_x, metric_x)),
+            alt.Tooltip(f"{metric_y}:Q", title=axis_labels.get(metric_y, metric_y)),
+        ]
+    )
+
+    st.altair_chart(glow + points, use_container_width=True)
 
 elif section == "Urban Impact Simulation":
-    if demo_mode:
-        st.success(demo_text[section])
 
     london_avg = data.mean(numeric_only=True)
 
-    base_wellbeing = df_view["wellbeing_index"].mean()
-    base_stress = df_view["stress_index"].mean()
-    base_resp = df_view["respiratory_risk_index"].mean()
+    base_row = df_view.iloc[0] if selected_area != "All areas" else data.mean(numeric_only=True)
 
-    sim_wellbeing = np.clip(base_wellbeing + green_increase * 0.2 + tree_increase * 0.15, 0, 100)
-    sim_stress = np.clip(base_stress - green_increase * 0.16, 0, 100)
-    sim_resp = np.clip(base_resp - tree_increase * 0.3, 0, 100)
+    base_gii = base_row["green_inequality_index"]
+    base_wellbeing = base_row["wellbeing_index"]
+    base_stress = base_row["stress_index"]
+
+    # Intervention modelling
+    gii_reduction = (green_increase * 0.01 * 0.4) + (tree_increase * 0.01 * 0.3)
+    projected_gii = np.clip(base_gii - gii_reduction, 0, 1)
+
+    projected_wellbeing = np.clip(base_wellbeing + green_increase * 0.15 + tree_increase * 0.12, 0, 10)
+    projected_stress = np.clip(base_stress - green_increase * 0.2, 0, 100)
+
+    # Reclassify risk
+    new_risk = classify_risk(projected_gii)
 
     col1, col2, col3 = st.columns(3)
 
-    if compare_mode and selected_area != "All areas":
-        col1.metric(
-            "Estimated Wellbeing Index",
-            f"{sim_wellbeing:.1f}",
-            f"{sim_wellbeing - london_avg['wellbeing_index']:+.1f} vs London"
-        )
-        col2.metric(
-            "Estimated Stress Index",
-            f"{sim_stress:.1f}",
-            f"{sim_stress - london_avg['stress_index']:+.1f} vs London",
-            delta_color="inverse"
-        )
-        col3.metric(
-            "Estimated Respiratory Risk",
-            f"{sim_resp:.1f}",
-            f"{sim_resp - london_avg['respiratory_risk_index']:+.1f} vs London",
-            delta_color="inverse"
-        )
-    else:
-        col1.metric("Estimated Wellbeing Index", f"{sim_wellbeing:.1f}", f"{sim_wellbeing - base_wellbeing:+.1f}")
-        col2.metric("Estimated Stress Index", f"{sim_stress:.1f}", f"{sim_stress - base_stress:+.1f}", delta_color="inverse")
-        col3.metric("Estimated Respiratory Risk", f"{sim_resp:.1f}", f"{sim_resp - base_resp:+.1f}", delta_color="inverse")
+    col1.metric(
+        "Projected Green Inequality Index",
+        f"{projected_gii:.3f}",
+        f"{projected_gii - base_gii:+.3f}",
+        delta_color="inverse"
+    )
+
+    col2.metric(
+        "Projected Wellbeing Index",
+        f"{projected_wellbeing:.2f}",
+        f"{projected_wellbeing - base_wellbeing:+.2f}"
+    )
+
+    col3.metric(
+        "Projected Stress Index",
+        f"{projected_stress:.1f}",
+        f"{projected_stress - base_stress:+.1f}",
+        delta_color="inverse"
+    )
+
+    st.markdown("### Risk Classification Shift")
+    st.write(f"Current: **{classify_risk(base_gii)}**")
+    st.write(f"Projected: **{new_risk}**")
 
 elif section == "Urban Sensor Integration":
     if demo_mode:
@@ -654,5 +1180,3 @@ with col_reset_demo:
         if st.button("Reset Demo"):
             st.session_state.demo_step = 0
             st.rerun()
-
-
