@@ -382,7 +382,24 @@ if not st.session_state.started:
     st.stop()
 
 
-wellbeing_raw = pd.read_csv("data/wellbeing-local-authority-time-series-v4.csv")
+
+# -------------------------------
+# Wellbeing (ONS) loader (robust paths)
+# -------------------------------
+def _load_wellbeing_timeseries():
+    candidate_paths = [
+        "data/wellbeing-local-authority-time-series-v4.csv",
+        "wellbeing-local-authority-time-series-v4.csv",
+    ]
+    for p in candidate_paths:
+        if os.path.exists(p):
+            return pd.read_csv(p)
+    # Fall back to Streamlit Cloud / current working dir error message
+    raise FileNotFoundError(
+        "Wellbeing dataset not found. Add 'wellbeing-local-authority-time-series-v4.csv' to your repo (e.g., data/)."
+    )
+
+wellbeing_raw = _load_wellbeing_timeseries()
 
 with open("data/london_boroughs.geojson", "r") as f:
     borough_geojson = json.load(f)
@@ -576,6 +593,32 @@ data = (
     data.groupby("area", as_index=False)
         .agg({**{c: "mean" for c in numeric_cols}, **{c: "first" for c in non_numeric_cols}})
 )
+
+# -------------------------------------------------
+# WELLBEING (LSSC realism add-ons)
+# Keep the official ONS mean (0–10) as-is, but add relative views for interpretation:
+#  - wellbeing_vs_london: borough minus London mean (points)
+#  - wellbeing_pct_vs_london: % difference vs London mean
+#  - wellbeing_zscore: standardised deviation (z-score)
+if "wellbeing_index" in data.columns:
+    _wb_mean = float(data["wellbeing_index"].mean(skipna=True)) if data["wellbeing_index"].notna().any() else np.nan
+    _wb_std  = float(data["wellbeing_index"].std(skipna=True)) if data["wellbeing_index"].notna().sum() > 1 else np.nan
+
+    data["wellbeing_london_mean"] = _wb_mean
+
+    data["wellbeing_vs_london"] = data["wellbeing_index"] - _wb_mean
+
+    # Avoid divide-by-zero
+    if pd.notna(_wb_mean) and abs(_wb_mean) > 1e-9:
+        data["wellbeing_pct_vs_london"] = (data["wellbeing_vs_london"] / _wb_mean) * 100.0
+    else:
+        data["wellbeing_pct_vs_london"] = np.nan
+
+    if pd.notna(_wb_std) and _wb_std > 1e-9:
+        data["wellbeing_zscore"] = (data["wellbeing_index"] - _wb_mean) / _wb_std
+    else:
+        data["wellbeing_zscore"] = 0.0
+
 # -------------------------------------------------
 # STRATEGIC LAYERS
 # -------------------------------------------------
@@ -720,12 +763,37 @@ with st.container():
     """, unsafe_allow_html=True)
 
     st.title("GreenPulse")
-    st.subheader("Urban Nature, Environment and Wellbeing")
+    SECTION_HEADERS = {
+    "Overview of London": (
+        "London-wide Overview",
+        "Explore borough-level patterns in green infrastructure, environment, and wellbeing across London."
+    ),
+    "Environment & Health": (
+        "Environment & Health Comparison",
+        "Compare green space access and wellbeing indicators across boroughs and identify areas of concern."
+    ),
+    "Relationship Explorer": (
+        "Relationships & Correlations",
+        "Explore how environmental indicators relate to health and wellbeing outcomes across boroughs."
+    ),
+    "Urban Impact Simulation": (
+        "Urban Impact Simulator",
+        "Test how increasing green space and tree cover could influence inequality, stress, and wellbeing metrics."
+    ),
+    "Urban Sensor Integration": (
+        "Urban Sensor Integration",
+        "Demonstration of how live sensor feeds for CO₂, humidity, light and noise levels could be integrated for real-time monitoring."
+    ),
+}
 
-    st.write(
-        "Use the sidebar on the left to explore environmental conditions, "
-        "health indicators and simulated green interventions across London boroughs."
-    )
+sub, desc = SECTION_HEADERS.get(
+    section,
+    ("Urban Nature, Environment and Wellbeing",
+     "Use the sidebar on the left to explore environmental conditions, health indicators and simulated green interventions across London boroughs.")
+)
+
+st.subheader(sub)
+st.write(desc)
 if demo_mode:
     st.markdown("### Guided Demo")
     #progress indicators showing how far people have gone in the demo
@@ -773,24 +841,50 @@ if section == "Overview of London":
 
     map_options = {
         "Green Space Access (%)": "green_space_access_pct",
-        "Wellbeing Index": "wellbeing_index",
+
+        # ONS wellbeing (raw + relative view)
+        "Wellbeing (ONS Life satisfaction, 0–10)": "wellbeing_index",
+        "Wellbeing (vs London avg)": "wellbeing_vs_london",
+
         "Respiratory Risk Index": "respiratory_risk_index",
         "Green Inequality Index (0–1)": "green_inequality_index",
     }
 
     map_label = st.selectbox("Colour map by:", list(map_options.keys()))
     map_metric = map_options[map_label]
+    if demo_mode:
+        if map_metric == "green_space_access_pct":
+            demo_desc = "This map highlights differences in green space accessibility across London boroughs."
+        elif map_metric == "wellbeing_index":
+            demo_desc = "This map shows wellbeing based on datasets of ONS life satisfaction scores of London."
+        elif map_metric == "wellbeing_vs_london":
+            demo_desc = "This map shows how each borough’s wellbeing compares to the London average."
+        elif map_metric == "respiratory_risk_index":
+            demo_desc = "This map highlights respiratory health risk linked to environmental conditions."
+        elif map_metric == "green_inequality_index":
+            demo_desc = "This map visualises the Green Inequality Index, identifying boroughs facing combined environmental disadvantage."
+        else:
+            demo_desc = demo_text[section]
+        st.success(demo_desc)
 
+    # Colour scales
     if map_metric in ["respiratory_risk_index", "air_quality_index", "stress_index"]:
         scale = "YlOrRd"
     elif map_metric == "wellbeing_index":
         scale = "Blues"
+    elif map_metric == "wellbeing_vs_london":
+        # Diverging scale: negative = below London avg, positive = above London avg
+        scale = "RdBu"
     elif map_metric == "green_inequality_index":
         scale = "RdYlGn_r"
     else:
         scale = "Greens"
 
     df_map = df_view.copy()
+
+    # Safety: only include hover_data columns that exist (prevents Plotly ValueError on typos)
+    def safe_hover_data(d, df):
+        return {k: v for k, v in d.items() if k in df.columns}
 
     # Range handling
     if map_metric == "green_inequality_index":
@@ -799,25 +893,43 @@ if section == "Overview of London":
         df_map = df_map[df_map["area"] != "City of London"]
     elif map_metric == "wellbeing_index":
         range_color = [0, 10]
+    elif map_metric == "wellbeing_vs_london":
+        # Typical borough differences are modest; clip for stable colour contrast without exaggeration.
+        range_color = [-0.6, 0.6]
     else:
         range_color = [0, 100]
 
     # Hover handling
     if map_metric == "green_inequality_index":
-        if df_map["green_inequality_index"].dropna().empty:
-            st.warning("Green Inequality Index data not found. Make sure 'GreenPulse Map.csv' is in your repo (e.g., data/GreenPulse Map.csv).")
+        if "green_inequality_index" in df_map.columns and df_map["green_inequality_index"].dropna().empty:
+            st.warning(
+                "Green Inequality Index data not found. Make sure 'GreenPulse Map.csv' is in your repo (e.g., data/GreenPulse Map.csv)."
+            )
 
         hover_data = {
             "green_inequality_index": ":.3f",
             "gii_main_driver": True,
         }
+
     elif map_metric == "wellbeing_index":
         hover_data = {
             "wellbeing_index": ":.2f",
             "wellbeing_band": True,
+            "wellbeing_pct_vs_london": ":.1f",
         }
+
+    elif map_metric == "wellbeing_vs_london":
+        hover_data = {
+            "wellbeing_vs_london": ":.2f",
+            "wellbeing_index": ":.2f",
+            "wellbeing_pct_vs_london": ":.1f",
+            "wellbeing_band": True,
+        }
+
     else:
         hover_data = {map_metric: ":.1f"}
+
+    hover_data = safe_hover_data(hover_data, df_map)
 
     fig = px.choropleth_mapbox(
         df_map,
@@ -835,8 +947,10 @@ if section == "Overview of London":
         hover_data=hover_data,
         labels={
             "green_space_access_pct": "Green Space Access (%)",
-            "wellbeing_index": "Wellbeing Index",
+            "wellbeing_index": "Wellbeing Index (0–10)",
+            "wellbeing_vs_london": "Wellbeing (vs London avg)",
             "wellbeing_band": "Wellbeing Band",
+            "wellbeing_pct_vs_london": "% vs London",
             "respiratory_risk_index": "Respiratory Risk Index",
             "green_inequality_index": "Green Inequality Index (0–1)",
             "gii_main_driver": "Primary Driver",
@@ -849,6 +963,13 @@ if section == "Overview of London":
 
     fig.update_coloraxes(colorbar_title=map_label)
     st.plotly_chart(fig, use_container_width=True)
+
+    if map_metric in ["wellbeing_index", "wellbeing_vs_london"]:
+        st.caption(
+            f"Wellbeing is ONS life satisfaction (latest year: {latest_year}). "
+            f"London mean: {_london_wb_mean:.2f}/10. Differences across boroughs are typically modest."
+        )
+
     if selected_area == "All areas":
         st.caption("**Select a borough from the sidebar to see the recommendation / wellbeing note.**")
 
@@ -884,17 +1005,20 @@ if section == "Overview of London":
             except Exception:
                 pass
 
-            st.markdown(f"""
-            <div class="gp-rec-card {sev_class}">
-              <div class="gp-rec-title">
-                Recommendation for <b>{selected_area}</b> <span style="opacity:0.85;">(Severity: {sev_label} -> GII: {gii_str})</span>
-              </div>
-              <p class="gp-rec-text">{rec_txt}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div class="gp-rec-card {sev_class}">
+                  <div class="gp-rec-title">
+                    Recommendation for <b>{selected_area}</b> <span style="opacity:0.85;">(Severity: {sev_label} -> GII: {gii_str})</span>
+                  </div>
+                  <p class="gp-rec-text">{rec_txt}</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
-    # --- Wellbeing note card (similar style to GII) ---
-    if selected_area != "All areas" and map_metric == "wellbeing_index":
+    # --- Wellbeing note card (raw + vs London view) ---
+    if selected_area != "All areas" and map_metric in ["wellbeing_index", "wellbeing_vs_london"]:
         row = data[data["area"] == selected_area]
         if not row.empty:
             r0 = row.iloc[0]
@@ -916,6 +1040,18 @@ if section == "Overview of London":
             except Exception:
                 pass
 
+            _diff = r0.get("wellbeing_vs_london", np.nan)
+            _pctd = r0.get("wellbeing_pct_vs_london", np.nan)
+            diff_str = "—"
+            pct_str = "—"
+            try:
+                if pd.notna(_diff):
+                    diff_str = f"{float(_diff):+.2f}"
+                if pd.notna(_pctd):
+                    pct_str = f"{float(_pctd):+.1f}%"
+            except Exception:
+                pass
+
             wb_note_txt = wb_note.strip() if isinstance(wb_note, str) else ""
             if not wb_note_txt:
                 wb_note_txt = "—"
@@ -925,7 +1061,7 @@ if section == "Overview of London":
                 <div class="gp-rec-card {sev_class}">
                   <div class="gp-rec-title">
                     Wellbeing note for <b>{selected_area}</b>
-                    <span style="opacity:0.85;">({wb_band} • Score: {wb_str}/10)</span>
+                    <span style="opacity:0.85;">({wb_band} • Score: {wb_str}/10 • vs London: {diff_str} ({pct_str}))</span>
                   </div>
                   <p class="gp-rec-text">{wb_note_txt}</p>
                 </div>
@@ -943,7 +1079,6 @@ if section == "Overview of London":
 
             st.markdown("### Strategic Indicators")
 
-            # Risk badge tone
             _risk = str(_r.get("risk_classification", "—"))
             _risk_map = {
                 "Resilient Zone": ("🟢", "Low"),
@@ -969,6 +1104,9 @@ if section == "Overview of London":
             _rank = _r.get("priority_rank", np.nan)
             _total = int(data["area"].nunique())
 
+            _wb = _r.get("wellbeing_index", np.nan)
+            _wb_diff = _r.get("wellbeing_vs_london", np.nan)
+
             def _format_deficit(v: float) -> str:
                 if pd.isna(v):
                     return "—"
@@ -983,7 +1121,16 @@ if section == "Overview of London":
             _pct_txt = "—" if pd.isna(_pct) else f"{float(_pct):.0f}th"
             _alloc_txt = "—" if pd.isna(_rank) else f"{int(_rank)} / {_total}"
 
-            # Allocation tier (governmental language)
+            _wb_txt = "—"
+            _wb_diff_txt = ""
+            try:
+                if pd.notna(_wb):
+                    _wb_txt = f"{float(_wb):.2f}/10"
+                if pd.notna(_wb_diff):
+                    _wb_diff_txt = f" (vs London {float(_wb_diff):+.2f})"
+            except Exception:
+                pass
+
             if pd.isna(_rank):
                 _tier = "—"
             else:
@@ -994,8 +1141,9 @@ if section == "Overview of London":
                     _tier = "Tier 2 – Moderate Priority"
                 else:
                     _tier = "Tier 3 – Strategic Monitoring"
+
             st.markdown(
-                f'''
+                f"""
                 <div class="kpi-grid">
                   <div class="kpi">
                     <div class="label">Risk classification</div>
@@ -1008,6 +1156,7 @@ if section == "Overview of London":
                     <div class="label">Green access deficit vs London benchmark</div>
                     <div class="value">{_def_txt}</div>
                     <div class="sub">Green access percentile: {_pct_txt}</div>
+                    <div class="sub">Wellbeing (ONS): <b>{_wb_txt}</b>{_wb_diff_txt}</div>
                   </div>
 
                   <div class="kpi">
@@ -1016,12 +1165,9 @@ if section == "Overview of London":
                     <div class="sub">{_tier}</div>
                   </div>
                 </div>
-                ''',
+                """,
                 unsafe_allow_html=True
             )
-
-
-
 elif section == "Environment & Health":
 
     if demo_mode:
@@ -1042,52 +1188,81 @@ elif section == "Environment & Health":
             use_container_width=True
         )
 
+    
     with col2:
-        st.altair_chart(
-            alt.Chart(df_view).mark_bar(point=True).encode(
-                x=alt.X("area:N", sort="-y", title= "Borough"),
-                y=alt.Y("wellbeing_index:Q", title="Wellbeing Index"),
-                tooltip=[
-                    alt.Tooltip("area:N", title="Borough"),
-                    alt.Tooltip("wellbeing_index:Q", title="Wellbeing Index", format=".2f"),
-                ]
-            ),
-            use_container_width=True
+        # Borough wellbeing (ONS) + London mean reference line
+        wb_bar = alt.Chart(df_view).mark_bar().encode(
+            x=alt.X("area:N", sort="-y", title="Borough"),
+            y=alt.Y("wellbeing_index:Q", title="Wellbeing (ONS Life satisfaction, 0–10)"),
+            tooltip=[
+                alt.Tooltip("area:N", title="Borough"),
+                alt.Tooltip("wellbeing_index:Q", title="Wellbeing (ONS)", format=".2f"),
+                alt.Tooltip("wellbeing_pct_vs_london:Q", title="% vs London", format=".1f"),
+            ]
         )
 
+        wb_mean = alt.Chart(pd.DataFrame({"london_mean": [_london_wb_mean]})).mark_rule().encode(
+            y="london_mean:Q"
+        )
+
+        st.altair_chart(wb_bar + wb_mean, use_container_width=True)
+        st.caption(f"London mean (latest year: {latest_year}): {_london_wb_mean:.2f}/10")
 elif section == "Relationship Explorer":
     if demo_mode:
         st.success(demo_text[section])
 
-    metric_x = st.selectbox(
-        "Environmental metric",
-        ["green_space_access_pct", "tree_cover_pct", "biodiversity_index", "air_quality_index", "green_inequality_index"]
+    env_metric_options = {
+        "Green Space Accessibility (%)": "green_space_access_pct",
+        "Tree Cover (%)": "tree_cover_pct",
+        "Biodiversity Index": "biodiversity_index",
+        "Air Quality Index (0–100)": "air_quality_index",
+        "Green Inequality Index (0–1)": "green_inequality_index",
+    }
+
+    health_metric_options = {
+        "Wellbeing Index (ONS Life Satisfaction)": "wellbeing_index",
+        "Stress Index": "stress_index",
+        "Respiratory Health Risk Index": "respiratory_risk_index",
+        "Green Inequality Index (0–1)": "green_inequality_index",
+    }
+
+    selected_env_label = st.selectbox(
+        "Environmental Indicator",
+        list(env_metric_options.keys())
     )
-    metric_y = st.selectbox(
-        "Health metric",
-        ["wellbeing_index", "stress_index", "respiratory_risk_index", "green_inequality_index"]
+
+    selected_health_label = st.selectbox(
+        "Health & Wellbeing Indicator",
+        list(health_metric_options.keys())
     )
+
+    metric_x = env_metric_options[selected_env_label]
+    metric_y = health_metric_options[selected_health_label]
 
     axis_labels = {
         "green_space_access_pct": "Green Space Access (%)",
         "tree_cover_pct": "Tree Cover (%)",
         "biodiversity_index": "Biodiversity Index",
         "air_quality_index": "Air Quality Index (0–100)",
-        "wellbeing_index": "Wellbeing Index",
+        "wellbeing_index": "Wellbeing Index (0–10)",
         "stress_index": "Stress Index (0–100)",
         "respiratory_risk_index": "Respiratory Risk Index (0–100)",
         "green_inequality_index": "Green Inequality Index (0–1)",
     }
 
-    base = alt.Chart(df_view)
+    df_plot = df_view.copy()
+    x_title = axis_labels.get(metric_x, metric_x)
+    y_title = axis_labels.get(metric_y, metric_y)
+
+    base = alt.Chart(df_plot)
 
     glow = base.mark_circle(
         size=350,
         opacity=0.15,
         color="#38bdf8"
     ).encode(
-        x=alt.X(f"{metric_x}:Q", title=axis_labels.get(metric_x, metric_x)),
-        y=alt.Y(f"{metric_y}:Q", title=axis_labels.get(metric_y, metric_y)),
+        x=alt.X(f"{metric_x}:Q", title=x_title),
+        y=alt.Y(f"{metric_y}:Q", title=y_title),
     )
 
     points = base.mark_circle(
@@ -1096,12 +1271,12 @@ elif section == "Relationship Explorer":
         stroke="white",
         strokeWidth=1
     ).encode(
-        x=alt.X(f"{metric_x}:Q", title=axis_labels.get(metric_x, metric_x)),
-        y=alt.Y(f"{metric_y}:Q", title=axis_labels.get(metric_y, metric_y)),
+        x=alt.X(f"{metric_x}:Q", title=x_title),
+        y=alt.Y(f"{metric_y}:Q", title=y_title),
         tooltip=[
             alt.Tooltip("area:N", title="Borough"),
-            alt.Tooltip(f"{metric_x}:Q", title=axis_labels.get(metric_x, metric_x)),
-            alt.Tooltip(f"{metric_y}:Q", title=axis_labels.get(metric_y, metric_y)),
+            alt.Tooltip(f"{metric_x}:Q", title=x_title),
+            alt.Tooltip(f"{metric_y}:Q", title=y_title),
         ]
     )
 
